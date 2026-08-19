@@ -27,3 +27,42 @@ models:
         tests:
           - unique
           - not_null
+
+  - name: stg_olist__sellers
+    description: One row per seller.
+    columns:
+      - name: seller_id
+        tests: [unique, not_null]
+
+  - name: stg_olist__order_reviews
+    description: >
+      One row per review, deduplicated on review_id by keeping the most
+      recent review_answer_timestamp. The source contains repeated
+      review_id values.
+    columns:
+      - name: review_id
+        tests: [unique, not_null]
+      - name: order_id
+        tests: [not_null]
+      - name: review_score
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 5
+              inclusive: true
+
+  - name: stg_olist__marketing_qualified_leads
+    description: One row per marketing qualified lead.
+    columns:
+      - name: mql_id
+        tests: [unique, not_null]
+      - name: lead_origin
+        tests: [not_null]
+
+  - name: stg_olist__closed_deals
+    description: One row per closed deal. Subset of MQLs that converted.
+    columns:
+      - name: mql_id
+        tests: [unique, not_null]
+      - name: seller_id
+        tests: [not_null]
