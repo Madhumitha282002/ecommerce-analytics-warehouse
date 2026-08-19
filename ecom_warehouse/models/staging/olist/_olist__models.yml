@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: stg_olist__orders
+    description: One row per order, renamed and type-cast from the raw source.
+    columns:
+      - name: order_id
+        description: Primary key.
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_olist__customers
+    description: One row per per-order customer record.
+    columns:
+      - name: customer_id
+        description: Per-order customer identifier. Not the person-level key.
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_olist__order_items
+    description: One row per line item within an order.
+    columns:
+      - name: order_item_key
+        description: Surrogate key hashed from order_id and order_item_id.
+        tests:
+          - unique
+          - not_null

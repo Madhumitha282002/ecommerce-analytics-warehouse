@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: olist
+    database: ecommerce-warehouse-505720
+    schema: raw
+    loaded_at_field: _loaded_at
+    freshness:
+      warn_after: {count: 36, period: hour}
+      error_after: {count: 72, period: hour}
+    tables:
+      - name: customers
+      - name: geolocation
+      - name: order_items
+      - name: order_payments
+      - name: order_reviews
+      - name: orders
+      - name: products
+      - name: sellers
+      - name: product_category_translation
+      - name: marketing_qualified_leads
+      - name: closed_deals
