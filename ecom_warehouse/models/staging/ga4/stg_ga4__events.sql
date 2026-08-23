@@ -6,8 +6,7 @@
             "data_type": "date",
             "granularity": "day"
         },
-        cluster_by=['event_name', 'user_pseudo_id'],
-        require_partition_filter=true
+        cluster_by=['event_name', 'user_pseudo_id']
     )
 }}
 
