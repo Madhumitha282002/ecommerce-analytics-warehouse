@@ -1,0 +1,6 @@
+tests:
+  - name: assert_payment_reconciles_to_order_value
+    config:
+      severity: warn
+      warn_if: ">100"
+      error_if: ">2000"
