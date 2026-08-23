@@ -12,7 +12,7 @@ renamed as (
         payment_sequential           as payment_sequence,
         lower(trim(payment_type))    as payment_type,
         payment_installments         as installment_count,
-        payment_value
+        cast(payment_value as numeric) as payment_value
 
     from source
 

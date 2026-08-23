@@ -15,11 +15,11 @@ funnel as (
     select
         leads.mql_id,
         leads.first_contact_date,
-        leads.origin                            as lead_origin,
+        leads.lead_origin                            as lead_origin,
         leads.landing_page_id,
 
         deals.seller_id,
-        deals.won_date,
+        deals.won_on                                   as won_date,
         deals.business_segment,
         deals.lead_type,
         deals.business_type,
@@ -28,7 +28,7 @@ funnel as (
         deals.mql_id is not null                as is_converted,
 
         date_diff(
-            date(deals.won_date),
+            deals.won_on,
             leads.first_contact_date,
             day
         )                                       as days_to_close

@@ -1,3 +1,5 @@
+{{ config(materialized='view') }}
+
 with payments as (
 
     select * from {{ ref('stg_olist__order_payments') }}

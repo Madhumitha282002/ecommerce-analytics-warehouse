@@ -13,9 +13,10 @@ renamed as (
         product_id,
         seller_id,
         shipping_limit_date          as shipping_limit_at,
-        price                        as item_price,
-        freight_value,
-        price + freight_value        as item_total
+        cast(price as numeric)                          as item_price,
+        cast(freight_value as numeric)                  as freight_value,
+        cast(price as numeric) + cast(freight_value as numeric)
+                                                         as item_total
 
     from source
 
