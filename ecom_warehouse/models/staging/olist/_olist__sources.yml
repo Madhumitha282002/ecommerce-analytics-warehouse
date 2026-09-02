@@ -10,13 +10,24 @@ sources:
       error_after: {count: 72, period: hour}
     tables:
       - name: customers
+        description: Raw per-order customer records, one row per customer_id.
       - name: geolocation
+        description: Raw zip-code-level lat/long readings, many rows per zip code prefix.
       - name: order_items
+        description: Raw order line items, one row per item within an order.
       - name: order_payments
+        description: Raw payment installments, one row per installment.
       - name: order_reviews
+        description: Raw customer reviews, may contain repeated review_id values across revisions.
       - name: orders
+        description: Raw order header and lifecycle timestamps, one row per order.
       - name: products
+        description: Raw product catalog, one row per product.
       - name: sellers
+        description: Raw seller records, one row per seller.
       - name: product_category_translation
+        description: Portuguese-to-English lookup for product category names.
       - name: marketing_qualified_leads
+        description: Raw MQLs, the entry point to the seller-acquisition funnel.
       - name: closed_deals
+        description: Raw closed deals — the subset of MQLs that converted into sellers.

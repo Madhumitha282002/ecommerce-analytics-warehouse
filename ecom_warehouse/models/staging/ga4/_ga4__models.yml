@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: stg_ga4__events
+    description: >
+      One row per event hit, unnested from a single day's session
+      table (`ga_sessions_20170701`) in the legacy Universal Analytics
+      BigQuery sample dataset — used here as a stand-in for a real GA4
+      export while validating partitioning/clustering behavior, since
+      it's structurally similar (sessions containing an array of hits)
+      but far smaller than the full GA4 sample. Rows where the hit has
+      no `eventInfo`, or where `date` fails to parse, are filtered out
+      before the partition column is populated — see
+      `stg_ga4__events_unpartitioned` for the model that reads the
+      actual `ga4` source.
+    columns:
+      - name: event_date
+        description: >
+          Parsed from the source's `YYYYMMDD` string `date` column.
+          Partition column — rows that fail to parse are dropped in
+          the `where` clause rather than landing here as null, since a
+          null partition value would be silently dropped by BigQuery's
+          partition expiration behavior rather than raising an error.
+      - name: user_pseudo_id
+        description: Device/browser-level visitor identifier (`fullVisitorId` in the source). Not a person-level ID.
+
+  - name: stg_ga4__events_unpartitioned
+    description: >
+      One row per event, flattened from the real `ga4.events` source
+      (sharded daily tables, `_table_suffix` between 2020-12-01 and
+      2021-01-31). Intentionally unpartitioned — kept alongside
+      `stg_ga4__events` to benchmark query cost with vs. without
+      partitioning/clustering on the same underlying data; see the
+      cost benchmark notes for that comparison.
+    columns:
+      - name: event_key
+        description: >
+          Surrogate key hashed from `user_pseudo_id`, `event_timestamp`,
+          and `event_name`. {{ doc("surrogate_key_reason") }}
+      - name: session_id
+        description: Extracted from the `ga_session_id` event param. Null if the event wasn't tagged with a session.
+      - name: purchase_revenue_usd
+        description: Populated only on purchase events; null on all other event types.

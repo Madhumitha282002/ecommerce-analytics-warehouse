@@ -2,67 +2,235 @@ version: 2
 
 models:
   - name: stg_olist__orders
-    description: One row per order, renamed and type-cast from the raw source.
+    description: >
+      {{ doc("order_grain") }} Renamed and type-cast from the raw
+      source; no filtering or deduplication happens here.
     columns:
       - name: order_id
         description: Primary key.
         tests:
           - unique
           - not_null
+      - name: customer_id
+        description: '{{ doc("customer_id_vs_unique_id") }}'
+      - name: order_status
+        description: >
+          Lowercased and trimmed source status string. See
+          `is_delivered` / `is_cancelled` in `int_order_lifecycle` for
+          the boolean rollups used downstream instead of comparing
+          against this string directly.
+      - name: purchased_at
+        description: Timestamp the order was placed.
+      - name: approved_at
+        description: >
+          Timestamp payment was approved. Null if the order never
+          reached this stage (e.g. cancelled before approval).
+      - name: delivered_to_carrier_at
+        description: >
+          Timestamp the seller handed the order to the logistics
+          carrier. Null until that happens.
+      - name: delivered_to_customer_at
+        description: >
+          Timestamp the customer received the order. Null until
+          delivery — this is the null this project is most careful
+          about, since coercing it to a sentinel date would corrupt
+          every delivery-time metric.
+      - name: estimated_delivery_at
+        description: Delivery date estimate shown to the customer at purchase time.
+      - name: purchased_date
+        description: Date-truncated `purchased_at`. Used as the partition column downstream.
 
   - name: stg_olist__customers
-    description: One row per per-order customer record.
+    description: >
+      One row per per-order customer record — see
+      `{{ doc("customer_id_vs_unique_id") }}` for why this is not the
+      same grain as "one row per customer."
     columns:
       - name: customer_id
-        description: Per-order customer identifier. Not the person-level key.
+        description: '{{ doc("customer_id_vs_unique_id") }}'
         tests:
           - unique
           - not_null
+      - name: customer_unique_id
+        description: >
+          Person-level customer identifier. All repeat-purchase and
+          lifetime-value metrics use this column as the grain, not
+          `customer_id`.
+      - name: customer_zip_code_prefix
+        description: >
+          Zero-padded to 5 digits. The source strips leading zeros on
+          load, which would otherwise break joins to `stg_olist__geolocation`
+          on zip prefix.
+      - name: customer_city
+        description: Title-cased and trimmed source city name.
+      - name: customer_state
+        description: Upper-cased and trimmed 2-letter Brazilian state code.
 
   - name: stg_olist__order_items
     description: One row per line item within an order.
     columns:
       - name: order_item_key
-        description: Surrogate key hashed from order_id and order_item_id.
+        description: >
+          Surrogate key hashed from `order_id` and `order_item_id`.
+          {{ doc("surrogate_key_reason") }}
         tests:
           - unique
           - not_null
+      - name: item_sequence
+        description: >
+          1-indexed position of this item within the order as assigned
+          by the source system. Not globally unique — combine with
+          `order_id` (or just use `order_item_key`) to identify a row.
+      - name: item_price
+        description: Item price excluding freight.
+      - name: freight_value
+        description: Shipping cost allocated to this line item.
+      - name: item_total
+        description: '`item_price + freight_value`. What the customer actually paid for this line.'
 
-  - name: stg_olist__sellers
-    description: One row per seller.
+  - name: stg_olist__order_payments
+    description: >
+      One row per payment installment. An order paid in 3 installments
+      produces 3 rows here, so any order-level payment total must
+      aggregate this table first (see `int_order_payments_aggregated`)
+      rather than joining it directly to an order-grain model.
     columns:
-      - name: seller_id
-        tests: [unique, not_null]
+      - name: payment_key
+        description: >
+          Surrogate key hashed from `order_id` and `payment_sequential`.
+          {{ doc("surrogate_key_reason") }}
+        tests:
+          - unique
+          - not_null
+      - name: payment_sequence
+        description: 1-indexed installment number within the order's payment plan.
+      - name: payment_type
+        description: Lowercased and trimmed, e.g. `credit_card`, `boleto`, `voucher`.
+      - name: installment_count
+        description: Total number of installments the customer chose for this payment.
+      - name: payment_value
+        description: Amount charged for this specific installment, not the order total.
 
   - name: stg_olist__order_reviews
-    description: >
-      One row per review, deduplicated on review_id by keeping the most
-      recent review_answer_timestamp. The source contains repeated
-      review_id values.
+    description: '{{ doc("review_dedup") }}'
     columns:
       - name: review_id
-        tests: [unique, not_null]
+        description: Primary key, post-deduplication.
+        tests:
+          - unique
+          - not_null
       - name: order_id
-        tests: [not_null]
+        description: >
+          Not unique — a single order can receive more than one review
+          across its lifecycle, and only the latest revision of each
+          survives here.
+        tests:
+          - not_null
       - name: review_score
+        description: Customer rating, 1 (worst) to 5 (best).
         tests:
           - dbt_utils.accepted_range:
               min_value: 1
               max_value: 5
               inclusive: true
+      - name: comment_title
+        description: >
+          Blank strings from the source are coerced to null via
+          `nullif` so `is null` reliably means "no title was left."
+      - name: comment_message
+        description: Same blank-to-null handling as `comment_title`.
+      - name: has_written_review
+        description: >
+          True when `comment_message` is non-empty. Never null — every
+          review has a score, so this flag is always computable, unlike
+          `is_late_delivery` on undelivered orders.
+
+  - name: stg_olist__products
+    description: >
+      One row per product. Category names are translated from
+      Portuguese; {{ doc("product_category_unknown") }}
+    columns:
+      - name: product_id
+        description: Primary key.
+        tests:
+          - unique
+          - not_null
+      - name: category_name_pt
+        description: Raw Portuguese category name from the source, unmodified.
+      - name: category_name
+        description: '{{ doc("product_category_unknown") }}'
+      - name: product_volume_cm3
+        description: >
+          `length * height * width`. Null whenever any one dimension is
+          null in the source — not coalesced to 0, since a 0 volume
+          would be indistinguishable from a real (if oddly shaped)
+          product.
+
+  - name: stg_olist__sellers
+    description: One row per seller.
+    columns:
+      - name: seller_id
+        description: Primary key.
+        tests: [unique, not_null]
+      - name: seller_zip_code_prefix
+        description: Zero-padded to 5 digits, same reasoning as `stg_olist__customers.customer_zip_code_prefix`.
+      - name: seller_state
+        description: Upper-cased and trimmed 2-letter Brazilian state code.
+
+  - name: stg_olist__geolocation
+    description: >
+      One row per zip code prefix. The source has many lat/long
+      readings per prefix (one per address ever geocoded there); this
+      model averages them down to a single representative point per
+      prefix so it can be joined 1:1 onto customers and sellers.
+    columns:
+      - name: zip_code_prefix
+        description: Primary key, zero-padded to 5 digits.
+        tests: [unique, not_null]
+      - name: latitude
+        description: Mean latitude across all source readings for this prefix.
+      - name: longitude
+        description: Mean longitude across all source readings for this prefix.
+      - name: state
+        description: >
+          Picked via `any_value` from the source rows for this prefix.
+          Prefixes essentially never span more than one state, so this
+          is a safe arbitrary pick rather than a true aggregation.
 
   - name: stg_olist__marketing_qualified_leads
-    description: One row per marketing qualified lead.
+    description: One row per marketing qualified lead (MQL) — the top of the seller-acquisition funnel.
     columns:
       - name: mql_id
+        description: Primary key.
         tests: [unique, not_null]
       - name: lead_origin
+        description: >
+          Channel the lead came from (e.g. `organic_search`, `paid_search`).
+          Coalesced to `'unknown'` rather than left null so funnel
+          breakdowns by channel don't silently drop unattributed leads.
         tests: [not_null]
 
   - name: stg_olist__closed_deals
-    description: One row per closed deal. Subset of MQLs that converted.
+    description: >
+      One row per closed deal — the subset of MQLs that converted into
+      a signed seller. Left-joining this onto MQLs (see
+      `int_marketing_funnel`) is what turns "closed or not" into a
+      boolean conversion flag.
     columns:
       - name: mql_id
+        description: Foreign key to `stg_olist__marketing_qualified_leads.mql_id`. Primary key of this table.
         tests: [unique, not_null]
       - name: seller_id
+        description: >
+          Assigned once the deal closes and the lead becomes a seller.
+          Used to join deal/funnel context onto seller sales
+          performance in `fct_marketing_funnel`.
         tests: [not_null]
+      - name: has_company
+        description: >
+          Source ships this as the string `'true'`/`'false'` (or blank).
+          Coalesced to boolean `false` on anything that isn't the
+          literal string `'true'`, so blank/unexpected values read as
+          "no," not null.
+      - name: has_gtin
+        description: Same string-to-boolean handling as `has_company`.

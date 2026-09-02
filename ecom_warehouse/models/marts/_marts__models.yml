@@ -2,31 +2,46 @@ version: 2
 
 models:
   - name: fct_orders
-    description: >
-      One row per order. Revenue, payment, delivery performance, and review
-      score joined at order grain. Item and payment many-to-one relationships
-      are pre-aggregated upstream to avoid fan-out.
+    description: '{{ doc("order_grain") }}'
     columns:
       - name: order_id
         description: Primary key. Unique identifier for an order.
         tests: [unique, not_null]
 
       - name: customer_id
-        description: Per-order customer identifier from the source system.
+        description: '{{ doc("customer_id_vs_unique_id") }}'
         tests:
           - not_null
           - relationships:
               to: ref('stg_olist__customers')
               field: customer_id
 
+      - name: customer_unique_id
+        description: >
+          Person-level customer identifier, carried through from
+          `stg_olist__customers`. Use this, not `customer_id`, for
+          anything that groups orders by customer.
+
+      - name: primary_category
+        description: '{{ doc("product_category_unknown") }} Null when the order has no items at all.'
+
       - name: total_revenue
+        description: Sum of item price and freight across every item on the order.
         tests:
           - not_null
           - dbt_utils.accepted_range:
               min_value: 0
               inclusive: true
 
+      - name: payment_type
+        description: >
+          Payment type of the order's single largest-value installment
+          — see `int_order_payments_aggregated.primary_payment_type`.
+          Not the full set of payment types used if the order was
+          split across multiple types.
+
       - name: order_status
+        description: Lowercased and trimmed source status string.
         tests:
           - accepted_values:
               values:
@@ -39,46 +54,138 @@ models:
                 - created
                 - approved
 
+      - name: is_late_delivery
+        description: '{{ doc("late_delivery_definition") }}'
+
+      - name: is_cancelled
+        description: '{{ doc("is_cancelled_definition") }}'
+
       - name: review_score
+        description: >
+          Average review score for the order. Most orders have exactly
+          one review so this is usually just that score; averaged in
+          case an order received more than one.
         tests:
           - dbt_utils.accepted_range:
               min_value: 1
               max_value: 5
               inclusive: true
 
+      - name: _dbt_updated_at
+        description: '{{ doc("dbt_updated_at") }}'
+
   - name: dim_customers
-    description: One row per customer_unique_id, the person-level identifier.
+    description: >
+      One row per `customer_unique_id` — the person-level grain. Built
+      by aggregating `fct_orders` up from order grain, so every
+      lifetime metric here reflects all of a customer's orders
+      regardless of status.
     columns:
       - name: customer_unique_id
+        description: 'Primary key. {{ doc("customer_id_vs_unique_id") }}'
         tests: [unique, not_null]
-      - name: lifetime_revenue
+      - name: lifetime_order_count
+        description: Count of distinct orders ever placed by this customer, including cancelled ones.
         tests:
           - dbt_utils.accepted_range:
               min_value: 0
               inclusive: true
+      - name: lifetime_revenue
+        description: Sum of `total_revenue` across all of the customer's orders.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: latitude
+        description: >
+          Joined from `stg_olist__geolocation` on zip code prefix. Null
+          when the customer's zip prefix has no geolocation reading in
+          the source.
+      - name: longitude
+        description: Same source and null behavior as `latitude`.
+      - name: late_delivery_count
+        description: >
+          Count of the customer's orders where `is_late_delivery` is
+          true. Orders that haven't been delivered yet (`is_late_delivery`
+          null) are not counted either way.
       - name: customer_segment
+        description: '{{ doc("customer_segment_definition") }}'
         tests:
           - accepted_values:
               values: ['repeat', 'one_time']
+      - name: days_since_last_order
+        description: >
+          `current_date() - most_recent_order_date`. Recomputed on
+          every run, so this value changes daily even if the customer
+          places no new orders.
 
   - name: dim_products
+    description: >
+      One row per product, with sales performance rolled up from
+      `int_order_items_enriched`. Products that have never been
+      ordered still appear here (left join), with sales columns
+      coalesced to 0.
     columns:
       - name: product_id
+        description: Primary key.
         tests: [unique, not_null]
+      - name: category_name
+        description: '{{ doc("product_category_unknown") }}'
+      - name: order_count
+        description: Count of distinct orders that included this product. 0, not null, for never-ordered products.
+      - name: avg_selling_price
+        description: >
+          Average `item_price` across all line items for this product.
+          Null (not 0) for never-ordered products, since there is no
+          meaningful average of zero sales.
 
   - name: fct_marketing_funnel
+    description: >
+      One row per marketing qualified lead (MQL), the seller-acquisition
+      equivalent of `fct_orders`. Same grain as `int_marketing_funnel`,
+      with seller sales performance joined on for converted leads.
     columns:
       - name: mql_id
+        description: Primary key.
         tests: [unique, not_null]
+      - name: is_converted
+        description: True when the lead closed into a seller. Never null.
       - name: seller_id
+        description: >
+          Null for leads that never converted. Not enforced with a
+          `relationships` test against `stg_olist__sellers` because
+          this project only ingests the Olist seller sample, not the
+          full seller registry the marketing funnel draws leads from —
+          a real `seller_id` here can legitimately have no match there.
         tests: []
           # - relationships:
           #     to: ref('stg_olist__sellers')
           #     field: seller_id
           #     config:
           #       where: "seller_id is not null"
+      - name: orders_fulfilled
+        description: Count of distinct orders fulfilled by this seller. 0 for unconverted leads and converted sellers with no sales yet.
+      - name: gmv_generated
+        description: Gross merchandise value (item price + freight) generated by this seller across all their order line items.
 
   - name: agg_daily_revenue
+    description: >
+      One row per (order_date, product_category, customer_state).
+      Pre-aggregated from `fct_orders` for dashboards that slice
+      revenue by day/category/state without querying order grain
+      directly. Cancelled orders (`is_cancelled = true`) are excluded
+      entirely, so this table's revenue will not reconcile to
+      `fct_orders` summed without the same filter applied.
+    columns:
+      - name: order_date
+        description: Date the order was purchased. Partition column.
+      - name: product_category
+        description: '{{ doc("product_category_unknown") }} Also the value for orders with no items, via `coalesce(primary_category, ''unknown'')`.'
+      - name: avg_order_value
+        description: >
+          `total_revenue / order_count` for this date/category/state
+          slice, computed with `safe_divide` so a slice with 0 orders
+          returns null instead of erroring.
     tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:

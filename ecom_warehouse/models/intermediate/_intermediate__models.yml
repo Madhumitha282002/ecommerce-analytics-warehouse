@@ -1,0 +1,103 @@
+version: 2
+
+models:
+  - name: int_order_lifecycle
+    description: >
+      One row per order. Adds timing and status-derived columns on top
+      of `stg_olist__orders` — the durations between lifecycle
+      timestamps, and the boolean flags (`is_delivered`,
+      `is_cancelled`, `is_late_delivery`) everything downstream uses
+      instead of comparing `order_status` strings directly. Materialized
+      as ephemeral since it's a thin, single-purpose transform of one
+      upstream model, not something anyone queries on its own.
+    columns:
+      - name: hours_to_approval
+        description: Hours between purchase and payment approval. Null if never approved.
+      - name: days_purchase_to_delivery
+        description: Days between purchase and customer delivery. Null until delivered.
+      - name: days_delivery_vs_estimate
+        description: >
+          `delivered_to_customer_at - estimated_delivery_at` in days.
+          Negative means delivered early, positive means late. Null
+          until delivered — see `is_late_delivery` for the boolean form.
+      - name: is_late_delivery
+        description: '{{ doc("late_delivery_definition") }}'
+      - name: is_delivered
+        description: True when `order_status = 'delivered'`. Never null.
+      - name: is_cancelled
+        description: '{{ doc("is_cancelled_definition") }}'
+
+  - name: int_order_items_aggregated
+    description: >
+      One row per order, aggregated up from `stg_olist__order_items`.
+      Exists so that order-grain models (`fct_orders`) can join in
+      item totals without fanning out across an order's line items.
+    columns:
+      - name: order_id
+        description: Primary key at this grain.
+        tests: [unique, not_null]
+      - name: item_count
+        description: Number of line items on the order.
+      - name: primary_category
+        description: >
+          Category of the single highest-priced item on the order,
+          picked via `array_agg(... order by item_price desc limit 1)`.
+          An order with multiple categories is attributed entirely to
+          this one for category-level revenue rollups (see
+          `agg_daily_revenue`) — a deliberate simplification, not a
+          true multi-category breakdown.
+      - name: primary_seller_state
+        description: Same highest-priced-item picking logic as `primary_category`, applied to seller state.
+      - name: total_order_value
+        description: Sum of `item_total` (price + freight) across all items on the order.
+
+  - name: int_order_items_enriched
+    description: >
+      One row per order line item — the same grain as
+      `stg_olist__order_items` — with product and seller attributes
+      joined on. Kept at line-item grain (unlike
+      `int_order_items_aggregated`) for models that need to aggregate
+      by product or seller rather than by order, e.g. `dim_products`
+      and `fct_marketing_funnel`'s seller performance.
+    columns:
+      - name: order_item_key
+        description: Primary key, inherited from `stg_olist__order_items`.
+        tests: [unique, not_null]
+
+  - name: int_order_payments_aggregated
+    description: >
+      One row per order, aggregated up from `stg_olist__order_payments`.
+      Same purpose as `int_order_items_aggregated` but for the
+      one-order-to-many-installments relationship.
+    columns:
+      - name: order_id
+        description: Primary key at this grain.
+        tests: [unique, not_null]
+      - name: primary_payment_type
+        description: >
+          Payment type of the single largest-value installment, picked
+          via `array_agg(... order by payment_value desc limit 1)`. An
+          order split across multiple payment types is attributed
+          entirely to this one downstream.
+      - name: payment_types
+        description: Distinct payment types used across all installments on the order, alphabetically sorted array.
+
+  - name: int_marketing_funnel
+    description: >
+      One row per marketing qualified lead (MQL), left-joined to its
+      closed deal if one exists. Grain matches
+      `stg_olist__marketing_qualified_leads`, so leads that never
+      converted still appear here with null deal columns.
+    columns:
+      - name: mql_id
+        description: Primary key.
+        tests: [unique, not_null]
+      - name: is_converted
+        description: >
+          True when this MQL has a matching row in
+          `stg_olist__closed_deals`. Never null — computed as
+          `deals.mql_id is not null` on the joined result.
+      - name: days_to_close
+        description: >
+          Days between `first_contact_date` and `won_date`. Null for
+          leads that never converted (`is_converted = false`).

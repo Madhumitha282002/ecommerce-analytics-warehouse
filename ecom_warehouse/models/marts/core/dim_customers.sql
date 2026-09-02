@@ -6,6 +6,12 @@ with customers as (
 
 ),
 
+geolocation as (
+
+    select * from {{ ref('stg_olist__geolocation') }}
+
+),
+
 orders as (
 
     select * from {{ ref('fct_orders') }}
@@ -36,6 +42,8 @@ final as (
         any_value(customers.customer_state)     as customer_state,
         any_value(customers.customer_city)      as customer_city,
         any_value(customers.customer_zip_code_prefix) as zip_code_prefix,
+        any_value(geolocation.latitude)         as latitude,
+        any_value(geolocation.longitude)        as longitude,
 
         coalesce(any_value(customer_orders.lifetime_order_count), 0)
                                                 as lifetime_order_count,
@@ -63,6 +71,8 @@ final as (
         current_timestamp()                     as _dbt_updated_at
 
     from customers
+    left join geolocation
+        on customers.customer_zip_code_prefix = geolocation.zip_code_prefix
     left join customer_orders
         on customers.customer_unique_id = customer_orders.customer_unique_id
     group by 1
