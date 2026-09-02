@@ -26,7 +26,7 @@ Regenerate and stage a new version locally with:
 ./scripts/publish_docs.sh
 ```
 
-Then commit `docs_site/` and push — GitHub Pages serves it from `main` / `/docs_site`.
+Then commit `docs/` and push — GitHub Pages serves it from `main` / `/docs`.
 
 ## Orchestration
 

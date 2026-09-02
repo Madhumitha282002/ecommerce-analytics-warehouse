@@ -5,7 +5,7 @@ __pycache__/
 *.json
 !package.json
 !packages.yml
-!docs_site/*.json
+!docs/*.json
 target/
 dbt_packages/
 logs/

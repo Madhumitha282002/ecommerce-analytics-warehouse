@@ -7,10 +7,10 @@ cd ecom_warehouse
 dbt docs generate
 cd ..
 
-mkdir -p docs_site
-cp ecom_warehouse/target/index.html docs_site/
-cp ecom_warehouse/target/manifest.json docs_site/
-cp ecom_warehouse/target/catalog.json docs_site/
-touch docs_site/.nojekyll
+mkdir -p docs
+cp ecom_warehouse/target/index.html docs/
+cp ecom_warehouse/target/manifest.json docs/
+cp ecom_warehouse/target/catalog.json docs/
+touch docs/.nojekyll
 
-echo "Docs staged in docs_site/. Commit and push to publish."
+echo "Docs staged in docs/. Commit and push to publish."
