@@ -1,0 +1,13 @@
+ecom_warehouse:
+  target: prod
+  outputs:
+    prod:
+      type: bigquery
+      method: service-account
+      project: your-project-id-here
+      dataset: staging
+      location: US
+      threads: 4
+      keyfile: /opt/airflow/gcp/dbt-runner-key.json
+      maximum_bytes_billed: 5000000000
+      job_retries: 2

@@ -1,0 +1,69 @@
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ecom_warehouse/**'
+      - '.github/workflows/dbt_ci.yml'
+
+jobs:
+  dbt_build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ecom_warehouse
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dbt
+        run: |
+          pip install dbt-bigquery==1.8.2 sqlfluff sqlfluff-templater-dbt
+
+      - name: Write service account key
+        run: |
+          echo "${{ secrets.GCP_SA_KEY_B64 }}" | base64 -d > /tmp/gcp-key.json
+          chmod 600 /tmp/gcp-key.json
+
+      - name: Write profiles.yml
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml <<EOF
+          ecom_warehouse:
+            target: ci
+            outputs:
+              ci:
+                type: bigquery
+                method: service-account
+                project: ${{ secrets.GCP_PROJECT_ID }}
+                dataset: analytics_ci
+                location: US
+                threads: 4
+                keyfile: /tmp/gcp-key.json
+                maximum_bytes_billed: 5000000000
+          EOF
+
+      - name: dbt deps
+        run: dbt deps
+
+      - name: dbt compile
+        run: dbt compile
+
+      - name: Lint SQL
+        run: sqlfluff lint models --dialect bigquery
+
+      - name: dbt build
+        run: dbt build --target ci
+
+      - name: Clean up CI dataset
+        if: always()
+        run: |
+          bq rm -r -f -d ${{ secrets.GCP_PROJECT_ID }}:analytics_ci || true
+          bq --location=US mk --dataset ${{ secrets.GCP_PROJECT_ID }}:analytics_ci || true
