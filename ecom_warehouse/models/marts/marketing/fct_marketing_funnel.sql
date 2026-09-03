@@ -10,8 +10,8 @@ seller_performance as (
 
     select
         seller_id,
-        count(distinct order_id)    as orders_fulfilled,
-        sum(item_total)             as gmv_generated
+        count(distinct order_id) as orders_fulfilled,
+        sum(item_total) as gmv_generated
     from {{ ref('int_order_items_enriched') }}
     group by 1
 
@@ -34,9 +34,9 @@ final as (
         funnel.seller_id,
 
         coalesce(seller_performance.orders_fulfilled, 0) as orders_fulfilled,
-        coalesce(seller_performance.gmv_generated, 0)    as gmv_generated,
+        coalesce(seller_performance.gmv_generated, 0) as gmv_generated,
 
-        current_timestamp()                              as _dbt_updated_at
+        current_timestamp() as _dbt_updated_at
 
     from funnel
     left join seller_performance

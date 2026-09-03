@@ -35,3 +35,11 @@ Airflow DAGs in `orchestration/dags/` run the ingest → dbt build → test → 
 ## Stack
 
 dbt-bigquery · BigQuery · Airflow (CeleryExecutor)
+
+## Dashboard
+
+[View Live Dashboard](https://datastudio.google.com/s/mfObv_wG6BQ)
+
+**Note:** This dashboard queries the pre-aggregated `agg_daily_revenue` table 
+to minimize BigQuery scan costs. Caching is set to 12 hours. 
+Each dashboard load scans ~150KB instead of 47GB if querying raw `fct_orders`.

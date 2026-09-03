@@ -20,21 +20,21 @@ with orders as (
 daily as (
 
     select
-        purchased_date                          as order_date,
-        coalesce(primary_category, 'unknown')   as product_category,
+        purchased_date as order_date,
+        coalesce(primary_category, 'unknown') as product_category,
         customer_state,
 
-        count(distinct order_id)                as order_count,
-        count(distinct customer_unique_id)      as customer_count,
-        sum(item_revenue)                       as item_revenue,
-        sum(freight_revenue)                    as freight_revenue,
-        sum(total_revenue)                      as total_revenue,
+        count(distinct order_id) as order_count,
+        count(distinct customer_unique_id) as customer_count,
+        sum(item_revenue) as item_revenue,
+        sum(freight_revenue) as freight_revenue,
+        sum(total_revenue) as total_revenue,
         safe_divide(sum(total_revenue), count(distinct order_id))
-                                                as avg_order_value,
-        countif(is_late_delivery)               as late_delivery_count,
-        avg(review_score)                       as avg_review_score,
+            as avg_order_value,
+        countif(is_late_delivery) as late_delivery_count,
+        avg(review_score) as avg_review_score,
 
-        current_timestamp()                     as _dbt_updated_at
+        current_timestamp() as _dbt_updated_at
 
     from orders
     where is_cancelled = false
