@@ -34,15 +34,9 @@ lifecycle as (
             else false
         end as is_late_delivery,
 
-        case
-            when order_status = 'delivered' then true
-            else false
-        end as is_delivered,
+        coalesce(order_status = 'delivered', false) as is_delivered,
 
-        case
-            when order_status in ('canceled', 'unavailable') then true
-            else false
-        end as is_cancelled
+        coalesce(order_status in ('canceled', 'unavailable'), false) as is_cancelled
 
     from orders
 
